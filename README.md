@@ -1,1 +1,1 @@
-# technical-notes
+# teknik notlar wiki'de
