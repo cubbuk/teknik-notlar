@@ -1,0 +1,147 @@
+# Ubuntu Sunucusu için Sanal Makina Oluşturma
+
+Ubuntu sunucuların sanallaştırılabilmesi için KVM (Kernel-based Virtual Machine) ve kurulan sanal makinayı yönetebilmek için libvirt’i kullanıyor. Komut satırından virsh komutunu kullanarak sanal makinalarınızı yönetebilirsiniz.
+
+İşlemciniz sanallaştırmayı destekliyor mu anlamak için aşağıdaki komutu çalıştırabilirsiniz:
+
+    egrep -c '(vmx|svm)' /proc/cpuinfo
+    
+Eğer dönen sonuç 0 ise CPU’nuz sanallaştırmayı desteklemiyor demek. 1 ve üstü ise desteklediğini işaret ediyor.
+
+KVM’i Sunucuya Yüklemek
+Kurulum için aşağıdaki komutu çalıştırmanız gerekiyor:
+
+    $ sudo apt-get install qemu-kvm libvirt-bin ubuntu-vm-builder bridge-utils
+* libvirt-bin qemu ve kvm instancelerını libvirt’i kullanarak yönetmek için gerekli `libvirtd`’yi yükler
+* Qemu-kvm sanal donanım 
+* Ubuntu-vm-builder sanal makinalar kurmayı sağlayan güçlü bir komut satırı aracı
+* Bridge-utils ana makinanızın ağından sanal makinalara köprü kurmanızı sağlayan bir araç
+
+Paketleri yükledikten sonra sunucuya bağlandığınız kullanıcının kvm ve libvirtd gruplarına dahil etmelisiniz. Bunun için aşağıdaki komutu çalıştırabilirsiniz:
+
+    sudo adduser `kullanıcı-adınız` libvirtd
+
+Bu komuttan sonra sunucuya tekrar bağlanmanız gerekiyor, bu sayede kullanıcı grup bilgileriniz güncellenmiş olacak.
+Kurulumunuzun başarılı olduğunu teyit etmek için aşağıdaki komutu çalıştırabilrsiniz: 
+    
+    virsh -c qemu:///system list
+    
+    //Buna benzer bir sonuç almalısınız
+    Id Name                 State
+    ----------------------------------
+
+Aşağıdaki gibi bir sonuç alıyorsanız bir şeyi yanlış yapmış olabilirsiniz (libvirtd grubuna kullanıcınızı ekledikten sonra sunucudan çıkıp giriş yapmamış olabilirsiniz, burada kritik olan  /var/run/libvirt/libvirt-sock dizinine yazma hakkınız olup olmadığı)
+    
+    libvir: Remote error : Permission denied
+    error: failed to connect to the hypervisor
+
+Sock dosyasının aşağıdakine benzer bir izni olmalı 
+    
+    $ sudo ls -la /var/run/libvirt/libvirt-sock
+    srwxrwx--- 1 root libvirtd 0 2010-08-24 14:54 /var/run/libvirt/libvirt-sock
+
+Ayrıca /dev/kvm de doğru grupta olmalı, aşağıdakine benzer bir sonuç görüyorsanız:
+
+    $ ls -l /dev/kvm
+    crw-rw----+ 1 root root 10, 232 Jul  8 22:04 /dev/kvm
+    
+sanal makina yaratırken sorunla karşılaşabilirsiniz, cihazın grubunu kvm/libvirtd’ye çevirmelisiniz
+    
+    sudo chown root:libvirtd /dev/kvm //Sisteme tekrar giriş yapmalısınız bu komuttan sonra
+
+##Ubuntu-vm-builder ile Sanal Makina Kurma
+Ubuntu-vm-builder aracılığıyla sanal makina kurabiliriz. Aşağıdaki sayfada sanal makinayı kurmak için gerekli bütün parametreleri görebilirsiniz.
+
+[man sayfası](http://manpages.ubuntu.com/manpages/hardy/man1/ubuntu-vm-builder.1.html)
+
+Aşağıdaki komutu kullanarak örnek sanal makinamızı oluşturabiliriz. `\` işaretini kullanarak birden fazla satırdan oluşan bir komutu çalıştırabilirsiniz, dikkat etmeniz gerek `\` işaretinden sonra başka bir karakter olmaması gerekiyor, eğer boşluk varsa komutunuz düzgün çalışmayacaktır.
+
+    sudo ubuntu-vm-builder \
+    kvm trusty \
+    --addpkg acpid \
+    --addpkg openssh-server \
+    --addpkg linux-image-generic \
+    --mirror http://gb.archive.ubuntu.com/ubuntu/ \
+    --components main,universe,restricted \
+    --arch amd64 \
+    --libvirt qemu:///system \
+    --mem 2048 \
+    --cpus 2 \
+    --user mehmet \
+    --pass 123456 \
+    --destdir deneme \
+    --hostname deneme \
+    --rootsize 100000
+
+Yukarıdaki komutu ubuntu trusty versiyonuna sahip (ubuntu 14) bir sanal makina kuracaktır. Parametrelerin üzerinden geçmek gerekirse:
+
+* --addpkg ile kurulacak sanal makinaya yüklenecek paketleri belirtebilirsiniz, acpid, openssh-server ve linux-image-generic paketleri kurulacaktır. Kuracağınız makinaya ssh ile bağlanabilmeniz için ssh paketlerini kurmanız elzem.
+* mirror parametresi kurulacak işletim sisteminin dosyalarının yükleneceği sunucuyu belirtmeye yarıyor, işlemi hızlandırmak için kullanılması faydalı bir parametre.
+
+* components açıkcası ne işe yaradığını bilmiyorum =)
+* arch kurulacak makinanın mimarisi, 64 bit işlemci setini seçtik
+* libvirt sanal makinayı libvirt’de hangi url’e kuracağını belirtiyor, detaylarını bilmiyorum
+* mem kurulacak makinaya tahsis edilecek ram’in MB cinsinden miktarı, 2GB ram verdik örnekte
+* cpus sanal makinaya tahsis edilecek işlemci sayısı 2 tane verdik örnekte
+* user,pass sanal makinada oluşturulacak kullanıcının adı ve parolası, verilmemesi durumunda `ubuntu` adlı, `ubuntu` şifreli bir kullanıcı oluşturacaktır.
+* destdir oluşturulacak sanal makina dosyasını ana makinada hangi dizine koyacağını belirtiyor, komutu çalıştırdığımız dizinde deneme klasörünün içine koyacak.
+* hostname makinanın sunucu adı
+* rootsize makinaya tahsis edilen disk miktarı MB cinsinden, 100GB disk verdik örnekte
+
+
+Komutu çalıştırdığınızda libvirt verdiğiniz parametrelere uygun biçimde bir sanal makina kurmaya başlıyor. Kurduğu makinaya belirttiğiniz işletim sistemini boot ediyor, bu sebeple işlem bir kaç dakika sürecektir.  İşlem bittiğinde virsh’i kullanarak makinanızın durumunu görebilirsiniz:
+
+    virsh
+    list --all komutu ile kurulmuş bütün sanal makinaları listeleyebilirsiniz
+
+Makinanızın adını göreceksiniz, state’de shut-off görüyorsanız sanal makinanınız kapalı olduğu anlamına gelir, start deneme diyerek deneme isimli sanal makinanızı çalıştırabilir, shutdown deneme diyerek de kapatabilirsiniz.
+
+     Id    Name                           State
+    ----------------------------------------------------
+     2     deneme                         running
+
+Burada önemli olan konu, bir sanal makina yarattınız ve bu makinanın configurasyon dosyasını güncelleyerek sanal makinanızın donanımını değiştirebilirsiniz. Bunun için edit komutunu kullanmanız gerekiyor. Sanal makinanınız configurasyonu xml formatında tutuluyor, bu dosyayı kaydetmek için virsh’den çıkıp aşağıdaki komutu çalıştırabilirsiniz.
+
+    virsh dumpxml deneme > deneme_config.
+
+Şu anda sanal makinamızı kurduk ancak bu makinaya hangi local ip’nin atandığını bilmiyoruz. Bunu anlamak için konfigurasyon dosyasından sanal makinamıza atanmış olacan mac adresini öğreneceğiz: Aşağıdaki komut bize mac adresimizi belirtecektir:
+
+    virsh dumpxml gitlab | grep mac
+Aşağıdakine benzer bir sonuç gelmeli ve mac satırında yazan adres bilgisini kullanarak makinamıza atanmış ip’yi öğreneceğiz.
+
+    <partition>/machine</partition>
+      <type arch='x86_64' machine='pc-i440fx-trusty'>hvm</type>
+      <mac address='52:54:00:0c:19:20'/>
+
+Mac adresimizi arp sonucundan filtreleyerek (grep komutunu kullanarak, çıktı olarak gelen dizinden aranan metni filtreleyebiliriz, bu işleme kısaca greplemek diyeceğim) dhcp tarafından makinamıza atanan ip’yi öğrenmiş olacağız.
+
+    sudo arp | grep 52:54:00:0c:19:20
+    192.168.122.225          ether   52:54:00:0c:19:20   C                     virbr0
+
+192.168.122.225 makinamıza atanmış olan ip.
+
+Artık `ssh deneme@192.168.122.225` komutu ile sanal makinamıza bağlanabiliriz.
+
+`/etc/hosts` dosyasına bir satır ekleyerek ip adresi yerine bir isim kullanarak da makinamıza bağlanabiliriz. Bunun için bu dosyaya aşağıdaki satırı eklerseniz, sanal makinanıza deneme adıyla da ulaşabilirsiniz. Sunucumuz bir network isteği yaparken dns’e çıkmadan önce hosts dosyasında bulunan eşleştirmelere bakıyor, bu durumda deneme adını verdiğiniz ip ile eşleştirip dns’e çıkmadan ip adresini öğrenmiş oluyor.
+
+    127.0.0.1	localhost
+    192.168.122.225	deneme #bu satır eklenmeli
+    
+    # The following lines are desirable for IPv6 capable hosts
+    ::1     ip6-localhost ip6-loopback
+    fe00::0 ip6-localnet
+    ff00::0 ip6-mcastprefix
+    ff02::1 ip6-allnodes
+    ff02::2 ip6-allrouters
+
+
+
+
+
+
+
+
+
+
+
+
